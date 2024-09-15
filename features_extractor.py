@@ -4,6 +4,7 @@ import pandas as pd
 from scipy.stats import skew
 
 pcap_dir = 'Data'
+output_csv = 'output.csv'
 
 
 def extract_features(pcap_file, label):
@@ -124,31 +125,45 @@ def extract_features(pcap_file, label):
         return None
 
 
-def find_all_pcaps_with_labels(pcap_dir):
-    pcap_files_with_labels = []
+def find_all_pcaps(pcap_dir):
+    pcap_files = []
     for root, dirs, files in os.walk(pcap_dir):
         for file in files:
             if file.endswith(".pcap"):
-                relative_path = os.path.relpath(root, pcap_dir)
-                label = relative_path.split(os.sep)[0]
-                pcap_files_with_labels.append((os.path.join(root, file), label))
-    return pcap_files_with_labels
+                relative_path = os.path.relpath(root, pcap_dir)  # Get the relative path from 'Data'
+                label = relative_path.split(os.sep)[0]  # Get the first folder after 'Data'
+                pcap_files.append((os.path.join(root, file), label))
+    return pcap_files
 
 
-def extract_features_to_csv(pcap_dir, output_csv='output.csv'):
-    pcap_files_with_labels = find_all_pcaps_with_labels(pcap_dir)
-    features_list = []
+def extract_features_to_csv(pcap_dir, output_csv=output_csv):
+    if os.path.exists(output_csv):
+        existing_df = pd.read_csv(output_csv)
+        processed_files = set(existing_df["Pcap File"])
+    else:
+        existing_df = pd.DataFrame()
+        processed_files = set()
 
-    for pcap_file, label in pcap_files_with_labels:
-        print(f"Processing: {pcap_file} with label: {label}")
-        features = extract_features(pcap_file, label)
-        if features:
-            features_list.append(features)
+    pcap_files = find_all_pcaps(pcap_dir)
+    new_features_list = []
 
-    df = pd.DataFrame(features_list)
-    df.to_csv(output_csv, index=False)
-    print(f"Features saved to {output_csv}")
+    for pcap_file, label in pcap_files:
+        if pcap_file not in processed_files:
+            print(f"Processing new file: {pcap_file} with label: {label}")
+            features = extract_features(pcap_file, label)
+            if features:
+                new_features_list.append(features)
+                processed_files.add(pcap_file)
+
+    # Convert the new features list to a DataFrame and append to the existing CSV
+    if new_features_list:
+        new_df = pd.DataFrame(new_features_list)
+        updated_df = pd.concat([existing_df, new_df], ignore_index=True)
+        updated_df.to_csv(output_csv, index=False)
+        print(f"Features appended to {output_csv}")
+    else:
+        print("No new files to process.")
 
 
 if __name__ == "__main__":
-    extract_features_to_csv(pcap_dir)
+    extract_features_to_csv(pcap_dir, output_csv)
