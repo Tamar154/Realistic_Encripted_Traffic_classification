@@ -23,13 +23,14 @@ def calculate_burstiness(row):
         # Define burstiness as high packet count over short time
         if session_duration > 0:
             burstiness_ratio = packet_count / session_duration
-            return 1 if burstiness_ratio > 50 else 0  # Arbitrary threshold for burstiness
+            return 1 if burstiness_ratio > 50 else 0
     return 0
 
 
 def calculate_protocol_diversity(row):
     # Use protocol counts to calculate diversity
-    protocols = ['HTTP Count', 'DNS Count', 'TCP Count', 'UDP Count']  # Adjust to match your dataset
+    # protocols = ['HTTP Count', 'DNS Count', 'TCP Count', 'UDP Count']
+    protocols = ['HTTP Count', 'HTTPS Count', 'FTP Count']
     total_protocols = sum([row[protocol] for protocol in protocols if protocol in row])
     distinct_protocols = len([row[protocol] for protocol in protocols if row.get(protocol, 0) > 0])
 
