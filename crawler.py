@@ -5,32 +5,39 @@ import shutil
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
-
 from scapy.arch import get_if_addr
 from scapy.config import conf
-from selenium import webdriver
 from selenium.common import TimeoutException, NoSuchElementException, ElementClickInterceptedException
-from selenium.webdriver import ActionChains
 from selenium.webdriver.chrome.service import Service as ChromeService
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 import time
 from queue import Queue  # Change from LifoQueue to Queue
 from scapy.all import sniff, AsyncSniffer, wrpcap
-from datetime import datetime
 import pyshark
 import random
 import subprocess
 from urllib.parse import urljoin, urlparse
 import platform
-
-
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+import os
+import pickle
+from datetime import datetime
+from datetime import timezone
+from datetime import timedelta
 
 print(platform.architecture())
+# Define the scope for Google Calendar API
+SCOPES = ['https://www.googleapis.com/auth/calendar.events']
 
 
 def get_random_file(directory):
@@ -56,6 +63,7 @@ def get_random_file(directory):
 
 class WebCrawler:
     def __init__(self, urls, operation, max_links, headless=False):
+        self.sniffer = None
         self.urls = urls  # This is now a list of URLs
         self.max_links = max_links
         self.visited = set()
@@ -283,30 +291,6 @@ class WebCrawler:
                 self.success = False
             except Exception as e:
                 print(f"An error occurred: {e}")
-        if "vod.walla.co.il" in url:
-            try:
-
-                # Wait for the page to load completely
-                WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located((By.TAG_NAME, "body"))
-                )
-
-                # Define the XPath based on the button class observed in the screenshot
-                play_button_xpath = '//button[contains(@class, "vjs-big-play-button")]'
-
-                # Wait for the element to be present and clickable
-                element = WebDriverWait(self.driver, 10).until(
-                    EC.element_to_be_clickable((By.XPATH, play_button_xpath))
-                )
-
-                # Click the play button
-                element.click()
-                print("Video.js play button found and clicked.")
-
-            except TimeoutException:
-                print("The specified element was not found within the given time frame.")
-            except Exception as e:
-                print(f"An error occurred: {e}")
 
     def handle_iframes(self):
         try:
@@ -352,9 +336,7 @@ class WebCrawler:
 
         if (any(video_keyword in netloc for video_keyword in
                 ['youtube', 'vimeo', 'dailymotion', 'netflix', 'hulu', 'cnn', 'bbc', 'video', 'videos', 'israelhayom'
-                    ,
-                 'israelhayom.co.il/culture/', 'israelhayom.co.il/podcasts/', 'israelhayom.co.il/news/',
-                 'israelhayom.co.il/sport/'])
+                 ])
                 and operation == 'video'):
             category = "video"
             attribution = "VOD"
@@ -501,12 +483,12 @@ class WebCrawler:
             print(f"Failed to save metadata file for {pcap_file}: {e}")
 
         # Save browser log in the same directory as the pcap file
-        log_file = destination_pcap_file.replace(".pcap", "_browser_log.txt")
-        try:
-            self.save_browser_log(log_file)
-            print(f"Logs saved to {log_file}.")
-        except Exception as e:
-            print(f"Failed to save browser logs to {log_file}: {e}")
+        # log_file = destination_pcap_file.replace(".pcap", "_browser_log.txt")
+        # try:
+        #     self.save_browser_log(log_file)
+        #     print(f"Logs saved to {log_file}.")
+        # except Exception as e:
+        #     print(f"Failed to save browser logs to {log_file}: {e}")
 
     def extract_application_name(self, url):
         # Parse the URL to get components
@@ -799,6 +781,9 @@ class WebCrawler:
                 self.crawl_for_video()
             elif operation.lower() == 'upload':
                 self.crawl_for_upload()
+            elif operation.lower() == 'meeting':
+                self.crawl_for_meeting()
+
 
             else:
                 print("Invalid operation specified. Please choose from 'downloading', 'browsing', or 'video'.")
@@ -1014,7 +999,8 @@ class WebCrawler:
         captured_packets = self.sniffer.results  # Access the results property
         return captured_packets
 
-    def upload_file_selenium(self,url, directory=r'C:\Users\ליאור\PycharmProjects\MeetingCrawler\downloads_for_project'):
+    def upload_file_selenium(self, url,
+                             directory=r'C:\Users\ליאור\PycharmProjects\MeetingCrawler\downloads_for_project'):
         """
         Automates the file upload process on a webpage using Selenium, selecting a random file from the specified directory.
 
@@ -1088,12 +1074,10 @@ class WebCrawler:
             for url in self.urls:
                 self.queue.put(url)
 
-            # Initialize the WebDriver (e.g., Chrome) once
-            #driver = webdriver.Chrome()
+                # Initialize the WebDriver (e.g., Chrome) once
+                #driver = webdriver.Chrome()
 
-            # Process each URL until the queue is empty
-
-
+                # Process each URL until the queue is empty
 
                 print(f"Crawling: {url}")
                 self.visited.add(url)
@@ -1105,9 +1089,10 @@ class WebCrawler:
 
                 # Start capturing traffic
                 self.start_capture(unique_identifier)
+                # Handle file upload using the dedicated method, passing the existing driver
+                self.upload_file_selenium(url)
+
                 if self.success is True:
-                    # Handle file upload using the dedicated method, passing the existing driver
-                    self.upload_file_selenium(url)
 
                     timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
                     pcap_file = f"web_traffic_{self.total_links}_{timestamp}_{unique_identifier}.pcap"
@@ -1135,16 +1120,170 @@ class WebCrawler:
                 self.success = True
             # Close the browser after processing all URLs
 
+    def authenticate_google(self):
+        creds = None
+        if os.path.exists('token.json'):
+            creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            else:
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    'credentials.json', SCOPES)
+                creds = flow.run_local_server(port=60411)  # Dynamic port handling
+            with open('token.json', 'w') as token:
+                token.write(creds.to_json())
+        return creds
+
+    def create_google_meet_event(self):
+        creds = self.authenticate_google()
+        service = build('calendar', 'v3', credentials=creds)
+
+        event = {
+            'summary': 'Google Meet Event',
+            'description': 'Meeting with team',
+            'start': {
+                'dateTime': (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+                'timeZone': 'UTC',
+            },
+            'end': {
+                'dateTime': (datetime.now(timezone.utc) + timedelta(minutes=40)).isoformat(),
+                'timeZone': 'UTC',
+            },
+            'conferenceData': {
+                'createRequest': {
+                    'conferenceSolutionKey': {
+                        'type': 'hangoutsMeet'
+                    },
+                    'requestId': 'some-random-string'
+                }
+            },
+            'attendees': [
+                {'email': 'example@example.com'}
+            ],
+        }
+
+        event = service.events().insert(calendarId='primary', body=event, conferenceDataVersion=1).execute()
+        print('Google Meet link:', event['hangoutLink'])
+        return event['hangoutLink']
+
+    def send_chat_message(self, driver, message="hello world"):
+        try:
+            # Step 1: Find and click the chat icon/button to open the chat window
+            WebDriverWait(self.driver, 20).until(
+                EC.element_to_be_clickable((By.XPATH, '//*[contains(@aria-label, "Chat with everyone")]'))
+            ).click()
+
+            # Step 2: Locate the chat input box
+            chat_input = WebDriverWait(self.driver, 20).until(
+                EC.visibility_of_element_located((By.XPATH, '//textarea[@aria-label="Send a message"]'))
+            )
+
+            # Step 3: Type the message and send it
+            for i in range(10):
+                chat_input.send_keys(message)
+                chat_input.send_keys(Keys.ENTER)  # Press Enter to send the message
+                print(f"Message '{message}' sent successfully.")
+                time.sleep(3)
+        except Exception as e:
+            print(f"Failed to send the chat message: {e}")
+
+    def turn_off_camera(self, driver):
+        try:
+            # Wait for the "Turn off camera" button to become clickable and click it
+            WebDriverWait(self.driver, 20).until(
+                EC.element_to_be_clickable((By.XPATH, '//*[contains(@aria-label, "Turn off camera")]'))
+            ).click()
+            print("Camera turned off successfully.")
+        except Exception as e:
+            print(f"Failed to turn off the camera: {e}")
+
+    def turn_off_mic(self, driver):
+        try:
+            # Wait for the "Turn off camera" button to become clickable and click it
+            WebDriverWait(self.driver, 20).until(
+                EC.element_to_be_clickable((By.XPATH, '//*[contains(@aria-label, "Turn off microphone")]'))
+            ).click()
+            print("Camera turned off successfully.")
+        except Exception as e:
+            print(f"Failed to turn off the camera: {e}")
+
+    def join_google_meet_with_profile(self, meet_link):
+        chrome_options = Options()
+        chrome_options.add_argument("--user-data-dir=C:/Users/ליאור/AppData/Local/Google/Chrome/User Data")
+        chrome_options.add_argument("--profile-directory=Default")  # Use your default Chrome profile
+
+        self.driver = webdriver.Chrome(service=Service('chromedriver.exe'), options=chrome_options)
+
+        # Open the Google Meet link
+        self.driver.get(meet_link)
+
+        # Wait for the page to load and try to join the meeting
+        try:
+            time.sleep(5)  # Adjust as necessary for your network speed
+            # Use the updated find_element method with By.XPATH
+            join_button = self.driver.find_element(By.XPATH, '//*[contains(text(),"Join now")]')
+            join_button.click()
+            print("Successfully joined the meeting.")
+        except Exception as e:
+            print(f"Failed to join: {e}")
+
+        self.turn_off_camera(self.driver)
+        self.turn_off_mic(self.driver)
+        self.send_chat_message(self.driver)
+        # Keep the browser open for a while (adjust as needed)
+        time.sleep(60)
+        self.driver.quit()
+
+    def crawl_for_meeting(self):
+        for _ in range(self.max_links):
+            meet_link = self.create_google_meet_event()
+
+            self.queue.put(meet_link)
+            self.visited.add(meet_link)
+
+            print(f"Crawling: {meet_link}")
+            print(f"Applying network conditions and starting traffic capture for {meet_link}")
+
+            self.apply_random_network_conditions()
+
+            unique_identifier = f"{self.total_links}_{int(time.time())}"
+
+            self.start_capture(unique_identifier)
+
+            self.join_google_meet_with_profile(meet_link)
+
+            if self.success is True:
+                timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+                pcap_file = f"web_traffic_{self.total_links}_{timestamp}_{unique_identifier}.pcap"
+
+                log_file = f"browser_log_{self.total_links}_{timestamp}_{unique_identifier}.txt"
+                #self.save_browser_log(log_file)
+                print(f"Browser log for {meet_link} saved in {log_file}")
+
+                directory = os.path.dirname(pcap_file)
+                log_file = os.path.join(directory, log_file)
+
+                captured_packets = self.stop_capture()
+                if captured_packets:
+                    wrpcap(pcap_file, captured_packets)
+                    print(f"Traffic for {meet_link} recorded in {pcap_file}")
+                    self.organize_pcap(pcap_file, meet_link, timestamp)
+                else:
+                    print(f"No packets captured for {meet_link}")
+
+            self.queue.task_done()
+            self.success = True
 
 
 if __name__ == "__main__":
     # Load URLs from a JSON file
-    with open('download_links.json', 'r') as file:
+    with open('videos.json', 'r') as file:
         urls = json.load(file)
 
-    operation = 'upload'
+    operation = 'meeting'
 
-    max_links = 2000  # Adjust this number as needed
+    max_links = 1  #Adjust this number as needed
 
     crawler = WebCrawler(urls, operation, max_links, headless=False)
     crawler.start_crawling(operation)
